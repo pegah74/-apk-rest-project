@@ -65,7 +65,9 @@ func findUserByMobile(mobile string) (User, error) {
 
 //routes ####################################################
 func homepage(c echo.Context) error {
-	return c.String(http.StatusOK, "APK Rest Service is up!")
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "APK project is up.",
+	})
 }
 
 func register(c echo.Context) error {
@@ -79,9 +81,11 @@ func register(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	userInDB, userError := findUserByMobile(u.Mobile)
+	_, userError := findUserByMobile(u.Mobile)
 	if userError == nil {
-		return c.JSON(http.StatusConflict, "mobile "+userInDB.Mobile+" already exists")
+		return c.JSON(http.StatusConflict, map[string]string{
+			"msg": "user already exists",
+		})
 	}
 
 	//hash password
@@ -91,9 +95,14 @@ func register(c echo.Context) error {
 	_, err := saveUser(u)
 	if err != nil {
 		log.Println(err.Error())
-		return c.JSON(http.StatusFailedDependency, "user can not be saved on db. ")
+		return c.JSON(http.StatusFailedDependency, map[string]string{
+			"msg": "user can not save on db",
+		})
 	}
-	return c.JSON(http.StatusCreated, "user saved on db")
+	return c.JSON(http.StatusCreated, map[string]string{
+		"msg":    "user saved on db",
+		"mobile": u.Mobile,
+	})
 }
 func login(c echo.Context) error {
 
@@ -136,7 +145,9 @@ func restricted(c echo.Context) error {
 	user := c.Get("user").(*jwt.Token)
 	claims := user.Claims.(jwt.MapClaims)
 	name := claims["firstname"].(string)
-	return c.String(http.StatusOK, "Welcome "+name+"!")
+	return c.JSON(http.StatusOK, map[string]string{
+		"msg": "Welcome " + name,
+	})
 }
 
 //utils ####################################################
