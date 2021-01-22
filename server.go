@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -12,7 +13,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"log"
 	"net/http"
+	"time"
 )
+
+var JwtSecret = "4KKrx2[tMT+&@zUQ"
 
 func main() {
 	e := echo.New()
@@ -21,6 +25,11 @@ func main() {
 
 	e.GET("/", homepage)
 	e.POST("/api/v1/auth/register", register)
+	e.POST("/api/v1/auth/login", login)
+
+	r := e.Group("/restricted")
+	r.Use(middleware.JWT([]byte(JwtSecret)))
+	r.GET("", restricted)
 
 	e.Logger.Fatal(e.Start(":9000"))
 }
@@ -86,6 +95,49 @@ func register(c echo.Context) error {
 	}
 	return c.JSON(http.StatusCreated, "user saved on db")
 }
+func login(c echo.Context) error {
+
+	loginRequest := new(LoginRequest)
+	if err := c.Bind(loginRequest); err != nil {
+		return err
+
+	}
+	if err := c.Validate(loginRequest); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	userInDb, errInDb := findUserByMobile(loginRequest.Mobile)
+	if errInDb != nil {
+		return echo.ErrUnauthorized
+	}
+	passwordMatch := comparePasswords(userInDb.Password, []byte(loginRequest.Password))
+	if passwordMatch == false {
+		return echo.ErrUnauthorized
+	}
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["firstname"] = userInDb.Firstname
+	claims["lastname"] = userInDb.Lastname
+	claims["mobile"] = userInDb.Mobile
+
+	claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
+	// Generate encoded token and send it as response.
+	t, err := token.SignedString([]byte(JwtSecret))
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"token": t,
+	})
+
+}
+func restricted(c echo.Context) error {
+	user := c.Get("user").(*jwt.Token)
+	claims := user.Claims.(jwt.MapClaims)
+	name := claims["firstname"].(string)
+	return c.String(http.StatusOK, "Welcome "+name+"!")
+}
 
 //utils ####################################################
 
@@ -101,7 +153,10 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 }
 
 //structs ####################################################
-
+type LoginRequest struct {
+	Mobile   string `json:"mobile" validate:"required,len=11"`
+	Password string `json:"password" validate:"required,min=4"`
+}
 type (
 	User struct {
 		Firstname string `json:"firstname"  form:"firstname" query:"firstname" `
@@ -115,3 +170,13 @@ type (
 		validator *validator.Validate
 	}
 )
+
+func comparePasswords(hashedPwd string, plainPwd []byte) bool {
+	byteHash := []byte(hashedPwd)
+	err := bcrypt.CompareHashAndPassword(byteHash, plainPwd)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	return true
+}
